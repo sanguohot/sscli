@@ -1,5 +1,5 @@
 # sscli
-a command tool to serve multi static dir with gin
+a command tool to serve multi diretory with gin, support static or json.
 ### install and use it
  ```
  $ git clone https://github.com/sanguohot/sscli sscli && cd sscli

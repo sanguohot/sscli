@@ -8,21 +8,30 @@ import (
 	"github.com/sanguohot/filecp/pkg/common/file"
 	"github.com/sanguohot/sscli/pkg/common/log"
 	"go.uber.org/zap"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
+var (
+	serveTypeDynamic = "dynamic"
+	serveTypeStatic  = "static"
+)
+
 type Sscli struct {
+	ty    string
 	port  int
 	host  string
 	paths []string
 	dirs  []string
 }
 
-func New(port int, host string, paths, dirs []string) *Sscli {
-	return &Sscli{port: port, host: host, paths: paths, dirs: dirs}
+func New(ty string, port int, host string, paths, dirs []string) *Sscli {
+	return &Sscli{ty: ty, port: port, host: host, paths: paths, dirs: dirs}
 }
 
 func checkDir(dir string) error {
@@ -41,11 +50,24 @@ func checkDir(dir string) error {
 	}
 	return nil
 }
-
+func middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Writer.Header().Set("Pragma", "no-cache")
+		c.Writer.Header().Set("Expires", "0")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		c.Next()
+	}
+}
 func (s *Sscli) checkParams() {
+	if s.ty != serveTypeDynamic && s.ty != serveTypeStatic {
+		log.Logger.Fatal(fmt.Sprintf("param 'type' should be %s or %s.", serveTypeStatic, serveTypeDynamic),
+			zap.String("type", s.ty))
+	}
 	if len(s.paths) != len(s.dirs) {
 		log.Logger.Fatal("param 'paths' and 'dirs' length should be equal.",
-			zap.String("host", s.host), zap.Strings("dirs", s.dirs), zap.Strings("paths", s.paths))
+			zap.Strings("dirs", s.dirs), zap.Strings("paths", s.paths))
 	}
 	if len(s.dirs) <= 0 || len(s.host) <= 0 || len(s.paths) <= 0 {
 		log.Logger.Fatal("param 'host', 'dirs' or 'paths' invalid",
@@ -71,17 +93,49 @@ func (s *Sscli) checkParams() {
 	}
 }
 
+func jsonHandlerCore(c *gin.Context, dir, path string) {
+	var (
+		err  error
+		data []byte
+	)
+	if !strings.Contains(c.Request.RequestURI, path) {
+		err = fmt.Errorf("%s should be contain %s", c.Request.RequestURI, path)
+	}
+	realPath := filepath.Join(dir, c.Request.RequestURI[len(path):])
+	if !file.FilePathExist(realPath) {
+		err = fmt.Errorf("uri => %s, file path %s not found", c.Request.RequestURI, realPath)
+		goto end
+	}
+	data, err = ioutil.ReadFile(realPath)
+end:
+	if err != nil {
+		log.Sugar.Error(err.Error())
+		c.JSON(http.StatusNotFound, err)
+	} else {
+		c.Data(http.StatusOK, http.DetectContentType(data), data)
+	}
+}
+
 func (s *Sscli) startServer() {
 	gin.SetMode(gin.DebugMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware())
 	// 默认设置logger，但启用logger会导致吞吐量大幅度降低
 	if os.Getenv("GIN_LOG") != "off" {
 		r.Use(gin.Logger())
 	}
 	r.MaxMultipartMemory = 10 << 20 // 10 MB
 	for k, v := range s.dirs {
-		r.Static(s.paths[k], v)
+		if s.ty == serveTypeDynamic {
+			r.NoRoute(func(c *gin.Context) {
+				jsonHandlerCore(c, s.dirs[k], s.paths[k])
+			})
+		} else if s.ty == serveTypeStatic {
+			r.Static(s.paths[k], v)
+		} else {
+			log.Logger.Fatal("unknown serve type", zap.String("type", s.ty))
+		}
 	}
 	server := &http.Server{
 		Addr:           fmt.Sprintf("%s:%d", s.host, s.port),
