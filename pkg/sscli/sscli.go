@@ -11,15 +11,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"time"
 )
 
 type Sscli struct {
-	port int
-	host string
+	port  int
+	host  string
 	paths []string
-	dirs []string
+	dirs  []string
 }
 
 func New(port int, host string, paths, dirs []string) *Sscli {
@@ -30,14 +29,14 @@ func checkDir(dir string) error {
 	if dir == "" {
 		return errors.New("dir should not be empty string")
 	}
-	if !file.FilePathExist(dir){
-		log.Sugar.Warnf("dir %s not found, create now...", dir)
-		if err := file.EnsureDir(filepath.Dir(dir)); err != nil {
+	if !file.FilePathExist(dir) {
+		log.Sugar.Infof("dir %s not found, create now...", dir)
+		if err := file.EnsureDir(dir); err != nil {
 			return err
 		}
-	}else if b, err := file.FileIsDir(dir); err != nil {
+	} else if b, err := file.FileIsDir(dir); err != nil {
 		return err
-	}else if !b {
+	} else if !b {
 		return fmt.Errorf("file path %d exit, but require to be dir", dir)
 	}
 	return nil
@@ -72,7 +71,7 @@ func (s *Sscli) checkParams() {
 	}
 }
 
-func (s *Sscli) startServer()  {
+func (s *Sscli) startServer() {
 	gin.SetMode(gin.DebugMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
