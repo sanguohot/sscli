@@ -2,7 +2,7 @@ package file
 
 import (
 	"fmt"
-	"github.com/sanguohot/sscli/pkg/common/log"
+	"github.com/sanguohot/log"
 	"io"
 	"io/ioutil"
 	"os"
